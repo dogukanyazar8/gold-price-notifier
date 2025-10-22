@@ -1,3 +1,10 @@
+// Railway health check için
+if (process.env.RAILWAY_ENVIRONMENT) {
+  console.log('🚂 Railway ortamında çalışıyor');
+  console.log('📍 Region:', process.env.RAILWAY_REGION || 'unknown');
+  console.log('🔢 Replica ID:', process.env.RAILWAY_REPLICA_ID || 'primary');
+}
+
 import cron from 'node-cron';
 import { config } from './config/config.js';
 import { ApiService } from './services/apiService.js';
