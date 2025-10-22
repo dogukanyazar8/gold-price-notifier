@@ -18,8 +18,13 @@ class GoldPriceNotifier {
     console.log('🚀 Altın Fiyat Bildirimi Uygulaması Başlatılıyor...');
     console.log(`⏰ Kontrol Aralığı: ${config.app.checkIntervalMinutes} dakika`);
     console.log(`🌍 Dil: ${config.app.language}`);
-    console.log(`📊 İzlenen Altın: ${config.app.alertGoldType}`);
-    console.log(`🎯 Eşik Değer: ${config.app.alertThresholdPrice} TL\n`);
+    
+    // Çoklu altın türlerini göster
+    console.log('📊 İzlenen Altınlar:');
+    config.app.alertGoldTypes.forEach((type, index) => {
+      console.log(`   ${index + 1}. ${type} - Eşik: ${config.app.alertThresholdPrices[index]} TL`);
+    });
+    console.log('');
 
     // Her N dakikada bir fiyat kontrolü
     const cronExpression = `*/${config.app.checkIntervalMinutes} * * * *`;
@@ -27,21 +32,19 @@ class GoldPriceNotifier {
     cron.schedule(cronExpression, async () => {
       console.log(`\n⏰ Kontrol Zamanı: ${new Date().toISOString()}`);
       
-      // Düzenli bildirim gönder (istediğiniz altın türlerini belirtin)
-      await this.notificationService.sendRegularNotification([
-        '24K Gram',
-        '22 Ayar Bilezik (Desenli)',
-      ]);
+      // .env'den okunan altın türlerini kullan
+      await this.notificationService.sendRegularNotification(
+        config.app.alertGoldTypes
+      );
 
       // Fiyat düşüş kontrolü
       await this.notificationService.checkPriceDropAlert();
     });
 
     // Başlangıçta bir kez çalıştır
-    this.notificationService.sendRegularNotification([
-      '24K Gram',
-      '22 Ayar Bilezik (Desenli)',
-    ]);
+    this.notificationService.sendRegularNotification(
+      config.app.alertGoldTypes
+    );
 
     console.log('✓ Uygulama başarıyla başlatıldı ve çalışıyor...\n');
   }
