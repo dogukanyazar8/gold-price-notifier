@@ -1,14 +1,73 @@
 import TelegramBot from 'node-telegram-bot-api';
+import express from 'express';
 import { config } from '../config/config.js';
 import { translations } from '../config/translations.js';
 
 export class TelegramService {
   constructor() {
-    this.bot = new TelegramBot(config.telegram.botToken, { polling: true });
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
+    
+    if (isProduction) {
+      // Production: Webhook kullan (Render için)
+      console.log('🌐 Webhook modunda başlatılıyor...');
+      this.bot = new TelegramBot(config.telegram.botToken);
+      this.setupWebhook();
+    } else {
+      // Development: Polling kullan (lokal için)
+      console.log('🔄 Polling modunda başlatılıyor...');
+      this.bot = new TelegramBot(config.telegram.botToken, { polling: true });
+    }
+    
     this.chatId = config.telegram.chatId;
     this.lang = config.app.language;
     this.commandHandler = null;
     this.setupCommands();
+  }
+
+  setupWebhook() {
+    const app = express();
+    app.use(express.json());
+
+    const webhookPath = `/bot${config.telegram.botToken}`;
+    const port = process.env.PORT || 10000;
+
+    // Webhook endpoint
+    app.post(webhookPath, (req, res) => {
+      this.bot.processUpdate(req.body);
+      res.sendStatus(200);
+    });
+
+    // Health check endpoint
+    app.get('/', (req, res) => {
+      res.send('🤖 Gold Price Notifier Bot is running!');
+    });
+
+    app.get('/health', (req, res) => {
+      res.json({ status: 'ok', uptime: process.uptime() });
+    });
+
+    app.listen(port, async () => {
+      console.log(`✅ Webhook server çalışıyor: Port ${port}`);
+      
+      const webhookUrl = process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL;
+      if (webhookUrl) {
+        try {
+          await this.bot.setWebHook(`${webhookUrl}${webhookPath}`);
+          console.log(`✅ Webhook ayarlandı: ${webhookUrl}${webhookPath}`);
+        } catch (error) {
+          console.error('❌ Webhook ayarlama hatası:', error.message);
+        }
+      } else {
+        console.warn('⚠️ WEBHOOK_URL tanımlanmamış. Webhook ayarlanamadı.');
+      }
+    });
+  }
+
+  async stopPolling() {
+    if (this.bot && this.bot.isPolling()) {
+      await this.bot.stopPolling();
+      console.log('✅ Polling durduruldu');
+    }
   }
 
   get t() {
@@ -76,32 +135,30 @@ export class TelegramService {
       }
     });
 
-    // Kontrol aralığını değiştir
     this.bot.onText(/\/setinterval (\d+)/, async (msg, match) => {
-    if (msg.chat.id.toString() !== this.chatId) return;
-    
-    const interval = parseInt(match[1]);
-    
-    if (interval < 1 || interval > 60) {
+      if (msg.chat.id.toString() !== this.chatId) return;
+      
+      const interval = parseInt(match[1]);
+      
+      if (interval < 1 || interval > 60) {
         this.bot.sendMessage(msg.chat.id, '❌ Aralık 1-60 dakika arasında olmalıdır.');
         return;
-    }
-    
-    config.app.checkIntervalMinutes = interval;
-    
-    // Zamanlayıcıyı yeniden başlat
-    if (this.commandHandler && this.commandHandler.restartScheduler) {
+      }
+      
+      config.app.checkIntervalMinutes = interval;
+      
+      if (this.commandHandler && this.commandHandler.restartScheduler) {
         this.commandHandler.restartScheduler();
-    }
-    
-    this.bot.sendMessage(
+      }
+      
+      this.bot.sendMessage(
         msg.chat.id, 
         `✅ Kontrol aralığı ${interval} dakika olarak güncellendi ve zamanlayıcı yeniden başlatıldı! 🔄`
-    );
-    
-    if (this.commandHandler && this.commandHandler.saveSettings) {
+      );
+      
+      if (this.commandHandler && this.commandHandler.saveSettings) {
         await this.commandHandler.saveSettings();
-    }
+      }
     });
 
     this.bot.onText(/\/status/, async (msg) => {
@@ -111,8 +168,10 @@ export class TelegramService {
       const hours = Math.floor(uptime / 3600);
       const minutes = Math.floor((uptime % 3600) / 60);
       
+      const mode = process.env.NODE_ENV === 'production' || process.env.RENDER ? '🌐 Webhook' : '🔄 Polling';
+      
       const status = `📊 <b>Uygulama Durumu</b>\n\n` +
-        `✅ Çalışıyor\n` +
+        `✅ Çalışıyor (${mode})\n` +
         `⏱️ Çalışma Süresi: ${hours}s ${minutes}d\n` +
         `📈 Bellek Kullanımı: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB\n` +
         `🔄 Node Versiyonu: ${process.version}`;

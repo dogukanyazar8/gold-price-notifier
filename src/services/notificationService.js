@@ -4,14 +4,14 @@ export class NotificationService {
   constructor(apiService, telegramService) {
     this.apiService = apiService;
     this.telegramService = telegramService;
-    this.lastNotifiedPrices = {}; // Object olarak değiştirdik (her altın için ayrı)
+    this.lastNotifiedPrices = {}; // Her altın için ayrı son bildirim fiyatı
   }
 
   async sendRegularNotification(goldTypes) {
     const result = await this.apiService.fetchGoldPrices();
     
     if (!result.success) {
-      console.error(`${this.telegramService.t.apiError}:`, result.error);
+      console.error(`API Hatası:`, result.error);
       return false;
     }
 
@@ -36,7 +36,6 @@ export class NotificationService {
     const goldTypes = config.app.alertGoldTypes;
     const thresholds = config.app.alertThresholdPrices;
 
-    // Eğer hiç eşik değer yoksa çık
     if (!thresholds || thresholds.length === 0) {
       return false;
     }
@@ -44,7 +43,7 @@ export class NotificationService {
     const result = await this.apiService.fetchGoldPrices();
     
     if (!result.success) {
-      console.error(`${this.telegramService.t.apiError}:`, result.error);
+      console.error('API Hatası:', result.error);
       return false;
     }
 

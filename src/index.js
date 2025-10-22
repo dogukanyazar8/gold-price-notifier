@@ -10,9 +10,8 @@ class GoldPriceNotifier {
     this.apiService = new ApiService();
     this.telegramService = new TelegramService();
     this.settingsManager = new SettingsManager();
-    this.cronTask = null; // Cron task'ı saklamak için
+    this.cronTask = null;
     
-    // Telegram servisine settings manager ve restart fonksiyonunu bağla
     this.telegramService.setCommandHandler({
       saveSettings: () => this.settingsManager.saveSettings(),
       restartScheduler: () => this.restartScheduler()
@@ -25,13 +24,11 @@ class GoldPriceNotifier {
   }
 
   restartScheduler() {
-    // Eski cron job'u durdur
     if (this.cronTask) {
       this.cronTask.stop();
       console.log('⏹️  Eski zamanlayıcı durduruldu');
     }
 
-    // Yeni cron job'u başlat
     const cronExpression = `*/${config.app.checkIntervalMinutes} * * * *`;
     
     this.cronTask = cron.schedule(cronExpression, async () => {
@@ -52,7 +49,6 @@ class GoldPriceNotifier {
     console.log(`⏰ Kontrol Aralığı: ${config.app.checkIntervalMinutes} dakika`);
     console.log(`🌍 Dil: ${config.app.language}`);
     
-    // Çoklu altın türlerini göster
     console.log('📊 İzlenen Altınlar:');
     config.app.alertGoldTypes.forEach((type, index) => {
       console.log(`   ${index + 1}. ${type} - Eşik: ${config.app.alertThresholdPrices[index]} TL`);
@@ -60,18 +56,39 @@ class GoldPriceNotifier {
     console.log('');
     console.log('💡 Telegram\'dan /help yazarak komutları görebilirsiniz.\n');
 
-    // Zamanlayıcıyı başlat
     this.restartScheduler();
 
-    // Başlangıçta bir kez çalıştır
     this.notificationService.sendRegularNotification(
       config.app.alertGoldTypes
     );
 
     console.log('✓ Uygulama başarıyla başlatıldı ve çalışıyor...\n');
   }
+
+  async shutdown() {
+    console.log('\n🛑 Uygulama kapatılıyor...');
+    
+    if (this.telegramService) {
+      await this.telegramService.stopPolling();
+    }
+    
+    if (this.cronTask) {
+      this.cronTask.stop();
+      console.log('✅ Zamanlayıcı durduruldu');
+    }
+  }
 }
 
-// Uygulamayı başlat
 const app = new GoldPriceNotifier();
 app.start();
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  await app.shutdown();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  await app.shutdown();
+  process.exit(0);
+});
