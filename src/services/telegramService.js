@@ -1,22 +1,20 @@
 import TelegramBot from 'node-telegram-bot-api';
-import express from 'express';
 import { config } from '../config/config.js';
 import { translations } from '../config/translations.js';
 
 export class TelegramService {
   constructor() {
-    const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
-    
-    if (isProduction) {
-      // Production: Webhook kullan (Render için)
-      console.log('🌐 Webhook modunda başlatılıyor...');
-      this.bot = new TelegramBot(config.telegram.botToken);
-      this.setupWebhook();
-    } else {
-      // Development: Polling kullan (lokal için)
-      console.log('🔄 Polling modunda başlatılıyor...');
-      this.bot = new TelegramBot(config.telegram.botToken, { polling: true });
-    }
+    // Railway'de her zaman polling kullan (webhook'a gerek yok)
+    console.log('🔄 Polling modunda başlatılıyor...');
+    this.bot = new TelegramBot(config.telegram.botToken, { 
+      polling: {
+        interval: 300,
+        autoStart: true,
+        params: {
+          timeout: 10
+        }
+      }
+    });
     
     this.chatId = config.telegram.chatId;
     this.lang = config.app.language;
@@ -24,49 +22,14 @@ export class TelegramService {
     this.setupCommands();
   }
 
-  setupWebhook() {
-    const app = express();
-    app.use(express.json());
-
-    const webhookPath = `/bot${config.telegram.botToken}`;
-    const port = process.env.PORT || 10000;
-
-    // Webhook endpoint
-    app.post(webhookPath, (req, res) => {
-      this.bot.processUpdate(req.body);
-      res.sendStatus(200);
-    });
-
-    // Health check endpoint
-    app.get('/', (req, res) => {
-      res.send('🤖 Gold Price Notifier Bot is running!');
-    });
-
-    app.get('/health', (req, res) => {
-      res.json({ status: 'ok', uptime: process.uptime() });
-    });
-
-    app.listen(port, async () => {
-      console.log(`✅ Webhook server çalışıyor: Port ${port}`);
-      
-      const webhookUrl = process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL;
-      if (webhookUrl) {
-        try {
-          await this.bot.setWebHook(`${webhookUrl}${webhookPath}`);
-          console.log(`✅ Webhook ayarlandı: ${webhookUrl}${webhookPath}`);
-        } catch (error) {
-          console.error('❌ Webhook ayarlama hatası:', error.message);
-        }
-      } else {
-        console.warn('⚠️ WEBHOOK_URL tanımlanmamış. Webhook ayarlanamadı.');
-      }
-    });
-  }
-
   async stopPolling() {
-    if (this.bot && this.bot.isPolling()) {
-      await this.bot.stopPolling();
-      console.log('✅ Polling durduruldu');
+    try {
+      if (this.bot && this.bot.isPolling()) {
+        await this.bot.stopPolling();
+        console.log('✅ Polling durduruldu');
+      }
+    } catch (error) {
+      console.error('Polling durdurma hatası:', error.message);
     }
   }
 
@@ -168,10 +131,9 @@ export class TelegramService {
       const hours = Math.floor(uptime / 3600);
       const minutes = Math.floor((uptime % 3600) / 60);
       
-      const mode = process.env.NODE_ENV === 'production' || process.env.RENDER ? '🌐 Webhook' : '🔄 Polling';
-      
       const status = `📊 <b>Uygulama Durumu</b>\n\n` +
-        `✅ Çalışıyor (${mode})\n` +
+        `✅ Çalışıyor (🔄 Polling)\n` +
+        `🚂 Railway\n` +
         `⏱️ Çalışma Süresi: ${hours}s ${minutes}d\n` +
         `📈 Bellek Kullanımı: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB\n` +
         `🔄 Node Versiyonu: ${process.version}`;

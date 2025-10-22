@@ -1,10 +1,3 @@
-// Railway health check için
-if (process.env.RAILWAY_ENVIRONMENT) {
-  console.log('🚂 Railway ortamında çalışıyor');
-  console.log('📍 Region:', process.env.RAILWAY_REGION || 'unknown');
-  console.log('🔢 Replica ID:', process.env.RAILWAY_REPLICA_ID || 'primary');
-}
-
 import cron from 'node-cron';
 import { config } from './config/config.js';
 import { ApiService } from './services/apiService.js';
@@ -53,6 +46,12 @@ class GoldPriceNotifier {
 
   start() {
     console.log('🚀 Altın Fiyat Bildirimi Uygulaması Başlatılıyor...');
+    
+    // Railway bilgisi
+    if (process.env.RAILWAY_ENVIRONMENT) {
+      console.log('🚂 Railway ortamında çalışıyor');
+    }
+    
     console.log(`⏰ Kontrol Aralığı: ${config.app.checkIntervalMinutes} dakika`);
     console.log(`🌍 Dil: ${config.app.language}`);
     
@@ -83,6 +82,8 @@ class GoldPriceNotifier {
       this.cronTask.stop();
       console.log('✅ Zamanlayıcı durduruldu');
     }
+    
+    console.log('✅ Uygulama temiz şekilde kapatıldı');
   }
 }
 
@@ -98,4 +99,9 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   await app.shutdown();
   process.exit(0);
+});
+
+// Hata yakalama
+process.on('unhandledRejection', (error) => {
+  console.error('❌ Yakalanmayan hata:', error);
 });
