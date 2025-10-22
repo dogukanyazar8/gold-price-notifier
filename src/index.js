@@ -3,11 +3,19 @@ import { config } from './config/config.js';
 import { ApiService } from './services/apiService.js';
 import { TelegramService } from './services/telegramService.js';
 import { NotificationService } from './services/notificationService.js';
+import { SettingsManager } from './services/settingsManager.js';
 
 class GoldPriceNotifier {
   constructor() {
     this.apiService = new ApiService();
     this.telegramService = new TelegramService();
+    this.settingsManager = new SettingsManager();
+    
+    // Telegram servisine settings manager'ı bağla
+    this.telegramService.setCommandHandler({
+      saveSettings: () => this.settingsManager.saveSettings()
+    });
+    
     this.notificationService = new NotificationService(
       this.apiService,
       this.telegramService
@@ -25,6 +33,7 @@ class GoldPriceNotifier {
       console.log(`   ${index + 1}. ${type} - Eşik: ${config.app.alertThresholdPrices[index]} TL`);
     });
     console.log('');
+    console.log('💡 Telegram\'dan /help yazarak komutları görebilirsiniz.\n');
 
     // Her N dakikada bir fiyat kontrolü
     const cronExpression = `*/${config.app.checkIntervalMinutes} * * * *`;
