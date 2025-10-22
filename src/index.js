@@ -10,16 +10,41 @@ class GoldPriceNotifier {
     this.apiService = new ApiService();
     this.telegramService = new TelegramService();
     this.settingsManager = new SettingsManager();
+    this.cronTask = null; // Cron task'ı saklamak için
     
-    // Telegram servisine settings manager'ı bağla
+    // Telegram servisine settings manager ve restart fonksiyonunu bağla
     this.telegramService.setCommandHandler({
-      saveSettings: () => this.settingsManager.saveSettings()
+      saveSettings: () => this.settingsManager.saveSettings(),
+      restartScheduler: () => this.restartScheduler()
     });
     
     this.notificationService = new NotificationService(
       this.apiService,
       this.telegramService
     );
+  }
+
+  restartScheduler() {
+    // Eski cron job'u durdur
+    if (this.cronTask) {
+      this.cronTask.stop();
+      console.log('⏹️  Eski zamanlayıcı durduruldu');
+    }
+
+    // Yeni cron job'u başlat
+    const cronExpression = `*/${config.app.checkIntervalMinutes} * * * *`;
+    
+    this.cronTask = cron.schedule(cronExpression, async () => {
+      console.log(`\n⏰ Kontrol Zamanı: ${new Date().toISOString()}`);
+      
+      await this.notificationService.sendRegularNotification(
+        config.app.alertGoldTypes
+      );
+
+      await this.notificationService.checkPriceDropAlert();
+    });
+
+    console.log(`✅ Yeni zamanlayıcı başlatıldı: ${config.app.checkIntervalMinutes} dakika`);
   }
 
   start() {
@@ -35,20 +60,8 @@ class GoldPriceNotifier {
     console.log('');
     console.log('💡 Telegram\'dan /help yazarak komutları görebilirsiniz.\n');
 
-    // Her N dakikada bir fiyat kontrolü
-    const cronExpression = `*/${config.app.checkIntervalMinutes} * * * *`;
-    
-    cron.schedule(cronExpression, async () => {
-      console.log(`\n⏰ Kontrol Zamanı: ${new Date().toISOString()}`);
-      
-      // .env'den okunan altın türlerini kullan
-      await this.notificationService.sendRegularNotification(
-        config.app.alertGoldTypes
-      );
-
-      // Fiyat düşüş kontrolü
-      await this.notificationService.checkPriceDropAlert();
-    });
+    // Zamanlayıcıyı başlat
+    this.restartScheduler();
 
     // Başlangıçta bir kez çalıştır
     this.notificationService.sendRegularNotification(

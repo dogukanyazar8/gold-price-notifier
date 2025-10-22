@@ -76,23 +76,32 @@ export class TelegramService {
       }
     });
 
+    // Kontrol aralığını değiştir
     this.bot.onText(/\/setinterval (\d+)/, async (msg, match) => {
-      if (msg.chat.id.toString() !== this.chatId) return;
-      
-      const interval = parseInt(match[1]);
-      
-      if (interval < 1 || interval > 60) {
+    if (msg.chat.id.toString() !== this.chatId) return;
+    
+    const interval = parseInt(match[1]);
+    
+    if (interval < 1 || interval > 60) {
         this.bot.sendMessage(msg.chat.id, '❌ Aralık 1-60 dakika arasında olmalıdır.');
         return;
-      }
-      
-      config.app.checkIntervalMinutes = interval;
-      
-      this.bot.sendMessage(msg.chat.id, `✅ Kontrol aralığı ${interval} dakika olarak güncellendi.\n\n⚠️ Değişikliğin etkili olması için uygulamayı yeniden başlatmanız gerekiyor.`);
-      
-      if (this.commandHandler && this.commandHandler.saveSettings) {
+    }
+    
+    config.app.checkIntervalMinutes = interval;
+    
+    // Zamanlayıcıyı yeniden başlat
+    if (this.commandHandler && this.commandHandler.restartScheduler) {
+        this.commandHandler.restartScheduler();
+    }
+    
+    this.bot.sendMessage(
+        msg.chat.id, 
+        `✅ Kontrol aralığı ${interval} dakika olarak güncellendi ve zamanlayıcı yeniden başlatıldı! 🔄`
+    );
+    
+    if (this.commandHandler && this.commandHandler.saveSettings) {
         await this.commandHandler.saveSettings();
-      }
+    }
     });
 
     this.bot.onText(/\/status/, async (msg) => {
