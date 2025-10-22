@@ -4,7 +4,7 @@ export class NotificationService {
   constructor(apiService, telegramService) {
     this.apiService = apiService;
     this.telegramService = telegramService;
-    this.lastNotifiedPrice = null;
+    this.lastNotifiedPrices = {}; // Object olarak değiştirdik (her altın için ayrı)
   }
 
   async sendRegularNotification(goldTypes) {
@@ -33,10 +33,11 @@ export class NotificationService {
   }
 
   async checkPriceDropAlert() {
-    const goldType = config.app.alertGoldType;
-    const threshold = config.app.alertThresholdPrice;
+    const goldTypes = config.app.alertGoldTypes;
+    const thresholds = config.app.alertThresholdPrices;
 
-    if (!threshold || threshold <= 0) {
+    // Eğer hiç eşik değer yoksa çık
+    if (!thresholds || thresholds.length === 0) {
       return false;
     }
 
@@ -47,28 +48,46 @@ export class NotificationService {
       return false;
     }
 
-    const goldItem = this.apiService.findGoldByName(result.data, goldType);
+    let alertSent = false;
 
-    if (!goldItem) {
-      console.error(`Altın türü bulunamadı: ${goldType}`);
-      return false;
+    // Her bir altın türü için kontrol et
+    for (let i = 0; i < goldTypes.length; i++) {
+      const goldType = goldTypes[i];
+      const threshold = thresholds[i];
+
+      // Eşik değer yoksa veya 0'sa bu altını atla
+      if (!threshold || threshold <= 0) {
+        continue;
+      }
+
+      const goldItem = this.apiService.findGoldByName(result.data, goldType);
+
+      if (!goldItem) {
+        console.error(`Altın türü bulunamadı: ${goldType}`);
+        continue;
+      }
+
+      // Fiyat eşik değerin altına düştüyse ve daha önce bildirim gönderilmediyse
+      if (goldItem.sell < threshold && this.lastNotifiedPrices[goldType] !== goldItem.sell) {
+        this.lastNotifiedPrices[goldType] = goldItem.sell;
+        
+        console.log(`🚨 Fiyat düşüş uyarısı: ${goldType} - ${goldItem.sell} TL (Eşik: ${threshold} TL)`);
+        
+        await this.telegramService.sendPriceDropAlert(
+          goldItem,
+          threshold,
+          result.base.date
+        );
+        
+        alertSent = true;
+      }
+
+      // Fiyat eşiğin üzerine çıktıysa, bildirim durumunu sıfırla
+      if (goldItem.sell >= threshold) {
+        this.lastNotifiedPrices[goldType] = null;
+      }
     }
 
-    // Fiyat eşik değerin altına düştüyse ve daha önce bildirim gönderilmediyse
-    if (goldItem.sell < threshold && this.lastNotifiedPrice !== goldItem.sell) {
-      this.lastNotifiedPrice = goldItem.sell;
-      return await this.telegramService.sendPriceDropAlert(
-        goldItem,
-        threshold,
-        result.base.date
-      );
-    }
-
-    // Fiyat eşiğin üzerine çıktıysa, bildirim durumunu sıfırla
-    if (goldItem.sell >= threshold) {
-      this.lastNotifiedPrice = null;
-    }
-
-    return false;
+    return alertSent;
   }
 }
