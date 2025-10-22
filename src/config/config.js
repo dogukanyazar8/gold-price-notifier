@@ -12,7 +12,12 @@ export const config = {
   app: {
     checkIntervalMinutes: parseInt(process.env.CHECK_INTERVAL_MINUTES) || 5,
     language: process.env.LANGUAGE || 'TR',
-    alertGoldType: process.env.ALERT_GOLD_TYPE || '24K Gram',
-    alertThresholdPrice: parseFloat(process.env.ALERT_THRESHOLD_PRICE) || 0,
+    // Virgülle ayrılmış değerleri array'e çevir
+    alertGoldTypes: process.env.ALERT_GOLD_TYPE 
+      ? process.env.ALERT_GOLD_TYPE.split(',').map(type => type.trim())
+      : ['24K Gram'],
+    alertThresholdPrices: process.env.ALERT_THRESHOLD_PRICE
+      ? process.env.ALERT_THRESHOLD_PRICE.split(',').map(price => parseFloat(price.trim()))
+      : [0],
   },
 };
