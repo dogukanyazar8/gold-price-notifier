@@ -19,5 +19,8 @@ export const config = {
     alertThresholdPrices: process.env.ALERT_THRESHOLD_PRICE
       ? process.env.ALERT_THRESHOLD_PRICE.split(',').map(price => parseFloat(price.trim()))
       : [0],
+    // Günlük karşılaştırma bildirimi ayarları
+    enableDailySummary: process.env.ENABLE_DAILY_SUMMARY === 'true' || true,
+    dailySummaryTime: process.env.DAILY_SUMMARY_TIME || '23:55', // Türkiye saati
   },
 };

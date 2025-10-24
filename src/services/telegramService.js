@@ -4,11 +4,33 @@ import { translations } from '../config/translations.js';
 
 export class TelegramService {
   constructor() {
-    this.bot = new TelegramBot(config.telegram.botToken, { polling: true });
+    // Railway'de her zaman polling kullan (webhook'a gerek yok)
+    console.log('🔄 Polling modunda başlatılıyor...');
+    this.bot = new TelegramBot(config.telegram.botToken, { 
+      polling: {
+        interval: 300,
+        autoStart: true,
+        params: {
+          timeout: 10
+        }
+      }
+    });
+    
     this.chatId = config.telegram.chatId;
     this.lang = config.app.language;
     this.commandHandler = null;
     this.setupCommands();
+  }
+
+  async stopPolling() {
+    try {
+      if (this.bot && this.bot.isPolling()) {
+        await this.bot.stopPolling();
+        console.log('✅ Polling durduruldu');
+      }
+    } catch (error) {
+      console.error('Polling durdurma hatası:', error.message);
+    }
   }
 
   get t() {
@@ -19,6 +41,31 @@ export class TelegramService {
     this.commandHandler = handler;
   }
 
+  formatPrice(price) {
+    return new Intl.NumberFormat('tr-TR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(price);
+  }
+
+  formatDate(dateInput) {
+    try {
+      if (typeof dateInput === 'number') {
+        const date = new Date(dateInput);
+        return date.toLocaleString('tr-TR', {
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+      return dateInput;
+    } catch (error) {
+      console.error('Tarih formatlama hatası:', error);
+      return dateInput;
+    }
+  }
+
   setupCommands() {
     this.bot.onText(/\/settings/, async (msg) => {
       if (msg.chat.id.toString() !== this.chatId) return;
@@ -27,7 +74,9 @@ export class TelegramService {
         `📊 <b>Altın Türleri:</b>\n${config.app.alertGoldTypes.map((t, i) => `   ${i + 1}. ${t}`).join('\n')}\n\n` +
         `💰 <b>Eşik Fiyatları:</b>\n${config.app.alertThresholdPrices.map((p, i) => `   ${i + 1}. ${this.formatPrice(p)} TL`).join('\n')}\n\n` +
         `⏰ <b>Kontrol Aralığı:</b> ${config.app.checkIntervalMinutes} dakika\n` +
-        `🌍 <b>Dil:</b> ${config.app.language}`;
+        `🌍 <b>Dil:</b> ${config.app.language}\n` +
+        `📈 <b>Günlük Özet:</b> ${config.app.enableDailySummary ? 'Aktif' : 'Pasif'}\n` +
+        `🕐 <b>Özet Saati:</b> ${config.app.dailySummaryTime}`;
       
       this.bot.sendMessage(msg.chat.id, settings, { parse_mode: 'HTML' });
     });
@@ -76,120 +125,121 @@ export class TelegramService {
       }
     });
 
-    // Kontrol aralığını değiştir
     this.bot.onText(/\/setinterval (\d+)/, async (msg, match) => {
-    if (msg.chat.id.toString() !== this.chatId) return;
-    
-    const interval = parseInt(match[1]);
-    
-    if (interval < 1 || interval > 60) {
-        this.bot.sendMessage(msg.chat.id, '❌ Aralık 1-60 dakika arasında olmalıdır.');
-        return;
-    }
-    
-    config.app.checkIntervalMinutes = interval;
-    
-    // Zamanlayıcıyı yeniden başlat
-    if (this.commandHandler && this.commandHandler.restartScheduler) {
-        this.commandHandler.restartScheduler();
-    }
-    
-    this.bot.sendMessage(
-        msg.chat.id, 
-        `✅ Kontrol aralığı ${interval} dakika olarak güncellendi ve zamanlayıcı yeniden başlatıldı! 🔄`
-    );
-    
-    if (this.commandHandler && this.commandHandler.saveSettings) {
-        await this.commandHandler.saveSettings();
-    }
-    });
-
-    this.bot.onText(/\/status/, async (msg) => {
       if (msg.chat.id.toString() !== this.chatId) return;
       
-      const uptime = process.uptime();
-      const hours = Math.floor(uptime / 3600);
-      const minutes = Math.floor((uptime % 3600) / 60);
+      const interval = parseInt(match[1]);
       
-      const status = `📊 <b>Uygulama Durumu</b>\n\n` +
-        `✅ Çalışıyor\n` +
-        `⏱️ Çalışma Süresi: ${hours}s ${minutes}d\n` +
-        `📈 Bellek Kullanımı: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB\n` +
-        `🔄 Node Versiyonu: ${process.version}`;
+      if (interval < 1) {
+        this.bot.sendMessage(msg.chat.id, '❌ Interval 1 dakikadan az olamaz');
+        return;
+      }
       
-      this.bot.sendMessage(msg.chat.id, status, { parse_mode: 'HTML' });
+      config.app.checkIntervalMinutes = interval;
+      
+      this.bot.sendMessage(
+        msg.chat.id,
+        `✅ Kontrol aralığı güncellendi: ${interval} dakika`,
+        { parse_mode: 'HTML' }
+      );
+      
+      if (this.commandHandler && this.commandHandler.saveSettings) {
+        await this.commandHandler.saveSettings();
+      }
+      
+      if (this.commandHandler && this.commandHandler.restartScheduler) {
+        this.commandHandler.restartScheduler();
+      }
     });
 
     this.bot.onText(/\/help/, async (msg) => {
       if (msg.chat.id.toString() !== this.chatId) return;
       
-      const help = `🤖 <b>Kullanılabilir Komutlar</b>\n\n` +
-        `<b>/settings</b> - Mevcut ayarları göster\n\n` +
-        `<b>/setgold</b> &lt;türler&gt; - Altın türlerini değiştir\n` +
-        `   Örnek: /setgold 24K Gram,22 Ayar\n\n` +
-        `<b>/setprice</b> &lt;fiyatlar&gt; - Eşik fiyatları değiştir\n` +
+      const help = `📚 <b>Kullanılabilir Komutlar</b>\n\n` +
+        `<b>/settings</b> - Mevcut ayarları göster\n` +
+        `<b>/setgold</b> [türler] - Altın türlerini ayarla\n` +
+        `   Örnek: /setgold 24K Gram, 22K Gram\n\n` +
+        `<b>/setprice</b> [fiyatlar] - Eşik fiyatlarını ayarla\n` +
         `   Örnek: /setprice 6000,5500\n\n` +
-        `<b>/setinterval</b> &lt;dakika&gt; - Kontrol aralığını değiştir\n` +
+        `<b>/setinterval</b> [dakika] - Kontrol aralığını ayarla\n` +
         `   Örnek: /setinterval 10\n\n` +
-        `<b>/status</b> - Uygulama durumunu göster\n\n` +
         `<b>/help</b> - Bu yardım mesajını göster`;
       
       this.bot.sendMessage(msg.chat.id, help, { parse_mode: 'HTML' });
     });
   }
 
-  formatPrice(price) {
-    return new Intl.NumberFormat('tr-TR', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(price);
-  }
-
-  formatDateTime(timestamp) {
-    const date = new Date(timestamp);
-    return date.toLocaleString(this.lang === 'TR' ? 'tr-TR' : 'en-US');
-  }
-
-  async sendPriceNotification(goldItems, usd, eur, baseTimestamp) {
-    const message = this.buildPriceMessage(goldItems, usd, eur, baseTimestamp);
-    return await this.sendMessage(message);
-  }
-
-  buildPriceMessage(goldItems, usd, eur, baseTimestamp) {
-    let message = `${this.t.priceNotification}\n\n`;
-
-    goldItems.forEach(item => {
-      message += `💰 ${item.name}: ${this.formatPrice(item.sell)} TL\n`;
-    });
-
-    if (usd) {
-      message += `\n💵 ${this.t.usdRate}: ${usd.satis}`;
-    }
-    if (eur) {
-      message += `\n💶 ${this.t.eurRate}: ${eur.satis}`;
-    }
-    
-    return message;
-  }
-
-  async sendPriceDropAlert(goldItem, threshold) {
-    let message = `${this.t.priceDropAlert}\n`;
-    message += `⚠️ ${goldItem.name} ${this.t.droppedBelow}\n\n`;
-    message += `📉 ${this.t.currentPrice}: ${this.formatPrice(goldItem.sell)} TL\n`;
-    message += `🎯 ${this.t.threshold}: ${this.formatPrice(threshold)} TL\n\n`;
-
-    return await this.sendMessage(message);
-  }
-
-  async sendMessage(text) {
+  // BASİTLEŞTİRİLMİŞ NORMAL BİLDİRİM (Sadece Satış Fiyatı, Zaman Yok)
+  async sendPriceNotification(goldItems, usdRate, eurRate, date) {
     try {
-      await this.bot.sendMessage(this.chatId, text, {
-        parse_mode: 'HTML',
+      let message = `📊 <b>Altın Fiyatları</b>\n\n`;
+
+      goldItems.forEach((item) => {
+        message += `💰 <b>${item.name}:</b> ${this.formatPrice(item.sell)} ₺\n`;
       });
-      console.log(`✓ ${this.t.notificationSent}: ${new Date().toISOString()}`);
+
+      message += `\n💵 USD: ${this.formatPrice(usdRate)} ₺\n`;
+      message += `💶 EUR: ${this.formatPrice(eurRate)} ₺`;
+
+      await this.bot.sendMessage(this.chatId, message, { parse_mode: 'HTML' });
+      console.log(`✅ ${this.t.notificationSent}`);
       return true;
     } catch (error) {
-      console.error('Telegram Error:', error.message);
+      console.error('Telegram mesaj hatası:', error);
+      return false;
+    }
+  }
+
+  // BASİTLEŞTİRİLMİŞ DÜŞÜŞ UYARISI (Zaman Yok)
+  async sendPriceDropAlert(goldItem, threshold, date) {
+    try {
+      let message = `🔔 <b>Fiyat Düşüş Uyarısı!</b>\n\n`;
+      message += `💰 <b>${item.name}</b>\n`;
+      message += `   Güncel: ${this.formatPrice(goldItem.sell)} ₺\n`;
+      message += `   Eşik: ${this.formatPrice(threshold)} ₺`;
+
+      await this.bot.sendMessage(this.chatId, message, { parse_mode: 'HTML' });
+      console.log(`✅ Düşüş bildirimi gönderildi: ${goldItem.name}`);
+      return true;
+    } catch (error) {
+      console.error('Telegram düşüş bildirimi hatası:', error);
+      return false;
+    }
+  }
+
+  // BASİTLEŞTİRİLMİŞ GÜNLÜK ÖZET (Zaman Yok)
+  async sendDailySummaryNotification(comparisons, usdRate, eurRate, date) {
+    try {
+      let message = `📈 <b>Günlük Özet</b>\n\n`;
+
+      comparisons.forEach((comp) => {
+        message += `💰 <b>${comp.name}</b>\n`;
+        
+        if (!comp.hasPreviousData) {
+          message += `   Güncel: ${this.formatPrice(comp.currentSell)} ₺\n`;
+          message += `   <i>Karşılaştırma verisi yok</i>\n\n`;
+        } else {
+          const diff = comp.currentSell - comp.previousSell;
+          const percent = ((diff / comp.previousSell) * 100).toFixed(2);
+          
+          let emoji = '➡️';
+          if (diff > 0) emoji = '📈';
+          else if (diff < 0) emoji = '📉';
+          
+          message += `   Dün: ${this.formatPrice(comp.previousSell)} ₺\n`;
+          message += `   Bugün: ${this.formatPrice(comp.currentSell)} ₺\n`;
+          message += `   ${emoji} ${diff > 0 ? '+' : ''}${this.formatPrice(diff)} ₺ (${percent > 0 ? '+' : ''}${percent}%)\n\n`;
+        }
+      });
+
+      message += `💵 USD: ${this.formatPrice(usdRate)} ₺\n`;
+      message += `💶 EUR: ${this.formatPrice(eurRate)} ₺`;
+
+      await this.bot.sendMessage(this.chatId, message, { parse_mode: 'HTML' });
+      console.log(`✅ Günlük özet bildirimi gönderildi`);
+      return true;
+    } catch (error) {
+      console.error('Telegram günlük özet hatası:', error);
       return false;
     }
   }
